@@ -12,6 +12,7 @@ of a commercial cheese type ("archetypes": cheddar, mozzarella, gouda, ...).
 |------|---------|
 | `Recipe_Prediction.ipynb` | The deliverable -- full pipeline, executed top to bottom |
 | `research.md` | State-of-the-art survey the design is built on (40 sources) |
+| `METHODOLOGY.md` | Every pipeline decision and its rationale (for expert review) |
 | `PHASE1_RESEARCH_AND_DESIGN.md` | Data understanding + design decisions |
 | `requirements.txt` | Python 3.12 environment (pip freeze) |
 
