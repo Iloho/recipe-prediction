@@ -1,0 +1,14 @@
+# Sensitive / local data -- never push (Analysis files are training-only)
+*.xlsx
+~$*
+
+# Environment & derived artifacts (reproducible by running the notebook)
+.venv/
+models/
+__pycache__/
+.ipynb_checkpoints/
+
+# Excel orphaned save artifacts (extension-less copies of sensitive workbooks)
+09861800
+A6D54700
+A8054700
