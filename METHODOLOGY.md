@@ -126,10 +126,11 @@ springiness ~0.22 — flagged as not usefully predictable.
 The tool auto-selects the **top-5 properties by CV R²** (currently pH,
 hardness, Moisture, max extensibility, gumminess) — "give me the most
 predictable parameters" — overridable via `SELECTED_PROPERTIES`. For cheese
-archetypes (S10), a per-archetype rule applies: properties with R² < 0.4 are
-dropped automatically and the best-predictable remaining ones are used
-(at most `max_targets`, default 5). Rationale: optimising toward a model that
-cannot predict (springiness at R² 0.22) just injects noise into the search.
+archetypes (S10), a per-archetype rule applies: among properties with CV R² > 0.5, the most
+*distinctive* (largest |z-score| across the cheese types) are used -- the top
+`max_targets` (default 3). Rationale: distinctiveness targets what makes a
+cheese type itself; the R² gate keeps those targets reachable; and fewer
+targets makes the optimisation easier (closer matches).
 
 ## 8. Inverse optimisation: differential evolution, and why
 
