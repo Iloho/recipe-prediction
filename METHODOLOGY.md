@@ -223,8 +223,31 @@ ranges nest inside trial ranges), define type-level **median profiles**.
   reference targets.
 - **Why medians** per type: robust to outlier products; a type is a cloud,
   its median is the archetype.
-- **Predictability filter** per archetype (S7) keeps the optimisation
-  well-posed.
+- **How each archetype's target properties are selected** (its "main
+  characteristics"): the designer does NOT chase the full ~20-property
+  profile. A property becomes a design target for a type only if it passes
+  two filters, and the top `max_targets` (default 3) survivors are used:
+  1. **Distinctiveness** -- the z-score of this type's median against the
+     other types' medians for that property:
+     `z = (type_median - mean_of_type_medians) / std_of_type_medians`.
+     A large |z| marks the property that makes the type *itself* --
+     mozzarella's stretch, parmesan's hardness, feta's moisture. Candidates
+     are ranked by |z|, descending.
+  2. **Predictability gate** (S7) -- CV R² > 0.5. A distinctive property
+     whose model cannot predict would only inject noise into the search.
+  Example from the executed notebook -- MOZZA selects: max extensibility
+  (|z|=1.8, R²=0.72), average extensibility (|z|=1.7, R²=0.59), chewiness
+  (|z|=1.1, R²=0.58). Nothing hard-codes "mozzarella = stretch"; the
+  signature emerges from the measured profiles alone, and it adapts when
+  the data (and hence the R² values or medians) change.
+  Why not target everything: for any given type most properties sit near
+  the cross-type average (|z| ~ 0) -- targeting them adds objective noise
+  without adding identity -- and fewer objectives lets the optimiser match
+  the defining ones more closely.
+- (Deployed service variant: the same two-filter rule runs against the live
+  dashboard's benchmark reference products, with R² refreshed at every
+  weekly retrain -- so each type's selected characteristics can evolve as
+  reference measurements accumulate.)
 - **Residuals are information**: the mozzarella design reaches the hardness
   target but only ~half the stretch target — meaning the explored
   ingredient/process space does not yet contain full mozzarella stretch.
