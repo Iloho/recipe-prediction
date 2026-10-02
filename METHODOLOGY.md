@@ -224,30 +224,56 @@ ranges nest inside trial ranges), define type-level **median profiles**.
 - **Why medians** per type: robust to outlier products; a type is a cloud,
   its median is the archetype.
 - **How each archetype's target properties are selected** (its "main
-  characteristics"): the designer does NOT chase the full ~20-property
-  profile. A property becomes a design target for a type only if it passes
-  two filters, and the top `max_targets` (default 3) survivors are used:
-  1. **Distinctiveness** -- the z-score of this type's median against the
-     other types' medians for that property:
-     `z = (type_median - mean_of_type_medians) / std_of_type_medians`.
-     A large |z| marks the property that makes the type *itself* --
-     mozzarella's stretch, parmesan's hardness, feta's moisture. Candidates
-     are ranked by |z|, descending.
-  2. **Predictability gate** (S7) -- CV R² > 0.5. A distinctive property
-     whose model cannot predict would only inject noise into the search.
-  Example from the executed notebook -- MOZZA selects: max extensibility
-  (|z|=1.8, R²=0.72), average extensibility (|z|=1.7, R²=0.59), chewiness
-  (|z|=1.1, R²=0.58). Nothing hard-codes "mozzarella = stretch"; the
-  signature emerges from the measured profiles alone, and it adapts when
-  the data (and hence the R² values or medians) change.
-  Why not target everything: for any given type most properties sit near
-  the cross-type average (|z| ~ 0) -- targeting them adds objective noise
-  without adding identity -- and fewer objectives lets the optimiser match
-  the defining ones more closely.
-- (Deployed service variant: the same two-filter rule runs against the live
-  dashboard's benchmark reference products, with R² refreshed at every
-  weekly retrain -- so each type's selected characteristics can evolve as
-  reference measurements accumulate.)
+  characteristics"): the designer does NOT chase the full profile. The top
+  `max_targets` (default 3) properties by
+
+      score = separation x sensory weight
+
+  among those passing the predictability gate become the design targets.
+  1. **Separation** (data, recomputed at every weekly retrain). Each property
+     is converted to percentile ranks across all benchmark cheeses; then
+     `separation = |median rank of this type - median rank of all other
+     benchmarks| / sqrt(mean of the two groups' rank variances)`. Ranks make
+     it scale-free (viscosity spans two orders of magnitude) and robust to
+     outlier products. The type's OWN spread sits in the denominator: when a
+     type's reference cheeses disagree among themselves on a property, its
+     median does not define the type, and the property scores low (this is
+     what removed targets no vegan recipe could reach, e.g. MOZZA average
+     viscosity, CV 124% across its references).
+  2. **Sensory weight** (literature, team-owned). Relevance 0-1 of each
+     property for how that cheese is perceived, from the team's literature
+     review (`archetype_sensory_weights.csv`, imported from the "Biblio wt"
+     column of "Ranking and overall similarity score.xlsx", including its
+     oiling/melting down-weight). A cheese/property pair without a row takes
+     that property's median across cheeses. The team edits the CSV in S3
+     `incoming/`; the next retrain uses it, no deploy needed.
+  3. **Predictability gate** (S7): CV R^2 > 0.5, from repeated grouped CV
+     (3 shuffled partitions x 5 folds) so that properties near 0.5 do not flip
+     in and out from one week to the next. R^2 is a gate, not a multiplier.
+  Targets outside the vegan p5-p95 band are kept but flagged, and every
+  archetype result carries a "Why these targets" table with the score parts.
+  Example (2026-10-02): CHEDDAR -> oiling, hardness, melting. Nothing
+  hard-codes a cheese's identity; it emerges from the measured profiles and
+  the team's literature weights. (The notebook still uses the earlier rule:
+  rank by |z| of the type median against the other types' medians.)
+  Why not target everything: most properties of a type sit near the
+  cross-type average and only add objective noise; fewer objectives let the
+  optimiser match the defining ones more closely.
+- **How the selection rule was validated** (2026-10-02, 9 cheese types).
+  Three rules were compared: the previous |z| rule, the team's ranking file
+  filtered to predictable properties, and this score. Each archetype was
+  designed and scored on (a) closeness to its targets, (b) identity: the
+  design's full predicted profile (6 predictable properties with benchmark
+  data) classified to the nearest cheese-type centroid, (c) bootstrap
+  stability of the chosen target set, (d) mean sensory weight of the targets.
+  Real reference cheeses classify to their own type 49% of the time
+  (leave-one-out), which is the ceiling for (b). On fresh optimiser seeds:
+  closeness 0.103 vs 0.126 (previous rule), sensory weight 0.62 vs 0.55,
+  stability 57% vs 55%; identity tied within one type of 9 (56-67% for all
+  rules), which 9 types cannot resolve. Rejected variants: also multiplying
+  by R^2 (pushed hardness into 7 of 9 archetypes, identity 44%), and
+  |z| x sensory (best identity on the first seed, 78%, not confirmed on new
+  seeds: 61%, with worse closeness 0.149).
 - **Residuals are information**: the mozzarella design reaches the hardness
   target but only ~half the stretch target — meaning the explored
   ingredient/process space does not yet contain full mozzarella stretch.
