@@ -70,6 +70,23 @@ signal (e.g. starches differ strongly from each other).
   `cat__Colour` / `cat__Flavour`. Paired 3 x 5 grouped CV with the production
   models: mean R^2 of the 7 selectable properties 0.613 -> 0.615, every
   property within +/-0.01 (fold noise). No accuracy reason to change.
+- **Tested and rejected: step-level process features** (2026-10-09). The
+  summaries hide order and timing (the team's reports and the literature say
+  shear, time at cooking temperature and oil/acid timing matter), so 32
+  cleaned features were built from the step and link tables, without reading
+  the free-text step names: rests excluded, units kept per equipment, minutes
+  above 60/70/80/90 C, heating rate, RPM-minutes per machine, temperature and
+  speed at oil/acid/protein/starch addition, share added after the cook.
+  Ceiling first: in the 72 recipes made with more than one process, the
+  process explains 4-7% of oiling, melting and melted-adhesiveness variance
+  (trial-to-trial noise: 5-20%) and ~0% of hardness and pH. Confirmed on fresh
+  partitions with the production models: mean R^2 change +0.000 to +0.003 (9
+  properties), at most +0.008 on the melt properties, ~50% of folds won; no
+  gain when whole process families are held out. Reason: the process barely
+  varies in the data (vegan mozzarella: 10-12 min above 90 C and 3,010 RPM
+  peak in the middle half of trials; oil never added after the cook). The
+  fix is data, not features: a designed process experiment on one fixed
+  recipe (S11).
 - Deployed service: individual columns for ingredients in >= 10 recipes (69
   columns; the threshold was re-selected in the v1.7 benchmark), no nutrient
   block (the live dashboard has no per-ingredient nutrient specs; it was worth
@@ -352,8 +369,11 @@ interpretable property space, which optimises and explains better.
    quantifies the shortfall.
 3. **Mixability is a mass balance, not kinetics.** The liquid band cannot see
    mixing order, hydration speed, or shear history.
-4. **Process is summarised**, not sequenced: step-order effects are invisible
-   to the model.
+4. **Process is summarised**, not sequenced, and step-level features did not
+   help (S3) because the process barely varies in the trials. To make process
+   effects learnable, run a designed experiment on one fixed recipe: e.g.
+   time above 90 C (5 vs 15 min) x peak mixer speed (~1,100 vs ~5,000 RPM) x
+   oil timing (all before the cook vs half after), 8 runs in duplicate.
 5. **Single final fit.** Final models are refit on all data; the honest
    accuracy estimate is the GroupKFold CV number. A stricter audit would be a
    temporal holdout (train on older trials, test on the newest).
