@@ -37,6 +37,7 @@ considered and rejected:
 | Replicates aggregated by **median** per (trial, parameter) | Robust to single bad measurements; the replicate scatter is reused for the noise ceiling (S4) rather than discarded. |
 | Texturometer restricted to **BLOCK** measurements | Mixing measurement geometries within one target would conflate instrument condition with formulation effects. |
 | pH taken from the per-trial Nutritional sheet (859 trials) | Treated as a property like any other: benchmarked, targetable, and reused as a realism constraint (S9). |
+| **Physically impossible values discarded** before the median (deployed service; currently pH outside 0-14) | A data-entry error is not a measurement. On 2026-10-05 three live trials with pH 93.2-93.8 took the weekly-retrained pH model from CV R^2 0.86 to -16.4 until the guard was added (v1.10, back to 0.848). Only physical laws are encoded, no plausibility thresholds; rejected trial ids are listed in `/jobs/meta` so they get fixed at the source. |
 | Sensitive source workbook never displayed | All notebook output is aggregate statistics; raw rows are never printed. Data files are gitignored. |
 
 ## 3. Featurisation (hybrid; 115 features)
@@ -63,6 +64,16 @@ signal (e.g. starches differ strongly from each other).
   step count). Process *steps* are free-text and non-standardised, so only
   numeric summaries are used — a deliberate information/noise trade-off.
 - **Ingredient count** (`n_ingredients`) as an explicit complexity feature.
+- **Tested and rejected: grouping colours and flavours** (2026-10-07). At
+  their doses they should barely affect texture, so their 28 individual
+  columns (20 flavours, 8 colours) were removed, leaving them only in
+  `cat__Colour` / `cat__Flavour`. Paired 3 x 5 grouped CV with the production
+  models: mean R^2 of the 7 selectable properties 0.613 -> 0.615, every
+  property within +/-0.01 (fold noise). No accuracy reason to change.
+- Deployed service: individual columns for ingredients in >= 10 recipes (69
+  columns; the threshold was re-selected in the v1.7 benchmark), no nutrient
+  block (the live dashboard has no per-ingredient nutrient specs; it was worth
+  +/-0.01), 95 features in total.
 
 ## 4. Noise ceiling: how good can any model be?
 
@@ -95,6 +106,12 @@ duplicate-recipe leakage.
 - Reported metrics: out-of-fold R², RMSE, MAE. Final models are refit on all
   data for deployment (standard); their honest accuracy estimate remains the
   CV number.
+- Deployed service: every weekly retrain refreshes each CV R^2 over **3
+  seeded, shuffled GroupKFold partitions x 5 folds**, so partition luck does
+  not move a property across the R^2 0.5 gate from one week to the next.
+- **Winner's curse discipline** for every model/feature decision since v1.7:
+  candidates are chosen on one set of seeded partitions and the reported
+  "after" number comes from fresh partitions never used for choosing.
 
 ## 6. Forward model families and why these six
 
@@ -109,9 +126,24 @@ art and deep nets underperform (research.md S1):
 | **HistGradientBoosting / XGBoost / LightGBM** (boosting) | Bias reduction with strong regularisation; native missing-value handling (XGBoost won pH; LightGBM/RF variants won Moisture across versions). |
 | **TabPFN v2** (optional, auto-detected) | Transformer prior-fitted on synthetic tabular tasks; competitive at exactly this sample size. Not installed by default; joins the benchmark if present. |
 
-Rejected: deep MLPs (data-hungry, unstable on n~500), Gaussian processes
-(O(n^3) is fine here but kernel choice over 115 mixed sparse features is
-fragile; trees dominated in pilot results from the literature).
+Rejected: deep MLPs (data-hungry, unstable on n~500).
+
+**Gaussian processes, benchmarked 2026-10-09** (initially rejected on
+literature grounds only). 9 properties (the 7 selectable + the 2 just under
+the gate), 3 x 5 paired grouped CV, September dashboard, Matern(2.5) + white
+noise kernel, standardised features:
+- GP with one length-scale over all 95 features: mean R^2 of the 7
+  selectable properties 0.632 vs 0.666 for the production models; worse on
+  every property.
+- One length-scale per feature (ARD) took 382 s per fit on 95 features
+  (~20 h for the benchmark). On the 26 compact category/state/process
+  features it reached only 0.512.
+- **Averaging the single-length-scale GP with the production model: 0.678**,
+  better than production in 68% of paired folds, gains on 6 of 7 selectable
+  properties (largest: melted adhesiveness +0.030, melting +0.024), loss on
+  max extensibility (-0.020). This was picked from four variants on the same
+  partitions, so it is a candidate awaiting confirmation on fresh partitions,
+  not adopted.
 
 **The benchmark is per-property** — the best family is kept for each property
 (there is no reason one inductive bias should win everywhere, and it doesn't).
@@ -121,16 +153,37 @@ n=859), hardness 0.744 (ExtraTrees), Moisture 0.729, max extensibility 0.719
 (ElasticNet), gumminess 0.697 (ExtraTrees). Worst: adhesiveness ~0.16,
 springiness ~0.22 — flagged as not usefully predictable.
 
+**Deployed service (v1.7, 2026-10-01): averaging ensembles.** Selection was
+re-run on the live dashboard: 6 families x {raw, log1p target}, plus
+equal-weight averages of the best two or three, chosen on two seeded
+partitions and confirmed on three fresh ones. Macro R^2 0.509 -> 0.550,
+MAE/IQR 0.522 -> 0.494, properties above R^2 0.5: 6 -> 8; 13 of 14 improved.
+Most properties are now served by a two- or three-family average
+(`model_selection.json`, generated data, not code). Rejected in the same run:
+process-step features (+0.001) and blanket log targets (worse in 59 of 78
+comparisons).
+
 ## 7. Target selection
 
 The tool auto-selects the **top-5 properties by CV R²** (currently pH,
 hardness, Moisture, max extensibility, gumminess) — "give me the most
-predictable parameters" — overridable via `SELECTED_PROPERTIES`. For cheese
-archetypes (S10), a per-archetype rule applies: among properties with CV R² > 0.5, the most
-*distinctive* (largest |z-score| across the cheese types) are used -- the top
-`max_targets` (default 3). Rationale: distinctiveness targets what makes a
-cheese type itself; the R² gate keeps those targets reachable; and fewer
-targets makes the optimisation easier (closer matches).
+predictable parameters" — overridable via `SELECTED_PROPERTIES`. Cheese archetypes use their own rule
+(S10).
+
+**Deployed service.** The Sheet offers every property with CV R^2 > 0.5, plus
+oiling and melting (domain owner's call; both sit near 0.5), each with its
+achievable p5-p95 range. Two exclusions apply before any modelling:
+- **Duplicate measurements**: of two parameters carrying the same physical
+  information, only the higher-R^2 member is modelled (Spearman on trials):
+  gumminess -> hardness 0.870 (gumminess = hardness x cohesiveness tracks
+  hardness, not cohesion, 0.09, and has no sensory validation in the
+  literature), chewiness -> hardness 0.752, resilience -> cohesion 0.942,
+  average -> max extensibility 0.913, viscosity max / min -> average
+  viscosity 0.996 / 0.740. Keeping both would weight one trait twice in the
+  design objective and in archetype target selection.
+- **Compositional outcomes** (Moisture, Fat): the formulator sets them
+  directly through water and oil, so targeting them is circular and says
+  nothing about how the cheese behaves.
 
 ## 8. Inverse optimisation: differential evolution, and why
 
@@ -217,6 +270,11 @@ SLICES 15, TILSITER 7), measured with the **same instruments and protocol**
 as the trials (verified: all 18 columns map 1:1 to trial parameters and value
 ranges nest inside trial ranges), define type-level **median profiles**.
 `design_for("MOZZA")` = inverse-design toward that profile.
+Deployed service: the references are the live dashboard's benchmark products
+(not vegan AND `Is_Benchmark`, grouped by `Cheese_Type`; currently 9 types,
+49 products), rebuilt at every weekly retrain, so new benchmarks are used
+automatically and a new `Cheese_Type` becomes a new archetype. Types with
+fewer than 3 references are flagged low-confidence.
 
 - **No training contamination**: the cheese trials have no formulation rows,
   so they cannot enter the supervised set (verified 0/258) — they are pure
@@ -299,7 +357,13 @@ interpretable property space, which optimises and explains better.
 5. **Single final fit.** Final models are refit on all data; the honest
    accuracy estimate is the GroupKFold CV number. A stricter audit would be a
    temporal holdout (train on older trials, test on the newest).
-6. **The natural next step is a closed loop**: design -> make -> measure ->
+6. **Live data quality.** The service retrains weekly on whatever the
+   dashboard contains. Physically impossible values are rejected (S2), but a
+   plausible-looking error (unit slip, shifted decimal) would be learned.
+   Check `/jobs/meta` (`built_at`, `cv_r2`, `rejected_impossible_values`)
+   after each Monday retrain. A promotion check that keeps the previous model
+   when a retrain is clearly worse is proposed, not built.
+7. **The natural next step is a closed loop**: design -> make -> measure ->
    append to the dataset -> retrain. Each verified candidate is the most
    informative possible new training point near the targets (this is
    active learning / sequential model-based optimisation in spirit).
@@ -312,6 +376,27 @@ interpretable property space, which optimises and explains better.
   demos ~15 min). Models + metadata exported to `models/` (joblib).
 - Data files (`*.xlsx`) are intentionally untracked in git; place them in the
   repo root before running.
+
+## 13. Deployed service (`recipe-service`)
+
+The pipeline runs as an AWS service (API Gateway + Lambda, eu-central-1)
+behind the team's Google Sheet. Code lives in the `recipe-service` repo; the
+trained state lives in S3 (`models/latest/`) and never in git or the image.
+Every Monday 03:00 UTC the retrain reads the live dashboard (KNIME drop in
+`incoming/`), refits the selected models, refreshes CV R^2, rebuilds the
+archetypes and reads the team's sensory weights. Modes: design (target
+values), archetype (cheese type) and predict (API only).
+
+| Date | Version | Decision | Evidence |
+|---|---|---|---|
+| 2026-07-17 | v1.0 | Deployed; archetypes from benchmark products | live smoke test, all modes |
+| 2026-08-24 | v1.4 | Duplicate measurements removed (S7) | Spearman 0.74-0.996 on trials |
+| 2026-08-27 | - | Moisture, Fat excluded (compositional) | domain owner |
+| 2026-09-30 | v1.6 | Products without a recipe kept out of training | retrain had failed silently Sep 7-28 (NaN groups) |
+| 2026-10-01 | v1.7 | Averaging ensembles, min_freq 10 (S6) | macro R^2 0.509 -> 0.550 on fresh partitions |
+| 2026-10-02 | v1.8 | gumminess -> hardness (S7) | Spearman 0.870 |
+| 2026-10-02 | v1.9 | Archetype score = separation x sensory weight; 3 x 5 CV (S10) | closeness 0.126 -> 0.103, identity tied |
+| 2026-10-07 | v1.10 | Physically impossible values rejected (S2) | pH R^2 -16.4 -> 0.848 |
 
 ## Glossary (one-liners)
 
