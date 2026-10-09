@@ -158,9 +158,19 @@ noise kernel, standardised features:
 - **Averaging the single-length-scale GP with the production model: 0.678**,
   better than production in 68% of paired folds, gains on 6 of 7 selectable
   properties (largest: melted adhesiveness +0.030, melting +0.024), loss on
-  max extensibility (-0.020). This was picked from four variants on the same
-  partitions, so it is a candidate awaiting confirmation on fresh partitions,
-  not adopted.
+  max extensibility (-0.020).
+- **Deployed in v1.11 (2026-10-09), decided per property by data.** Every
+  weekly retrain scores the selected model and its 50/50 average with the GP
+  on the same 15 folds and serves the average only where it scores higher (no
+  per-property list in code; `gp_average_retrain` in `model_selection.json`
+  switches it off). First live retrain: the average was chosen for 11 of 13
+  properties (not complex viscosity or adhesiveness); e.g. oiling 0.537 ->
+  0.565, melting 0.494 -> 0.526, average viscosity 0.653 -> 0.679, hardness
+  0.755 -> 0.769. Two small optimisms are accepted and documented: the GP's
+  three kernel hyperparameters are tuned once on all rows and frozen for the
+  CV folds (keeps the retrain under its 15-min cap: 532 s), and serving the
+  better of two CV scores slightly favours the winner. `/jobs/meta` reports
+  `gp_averaged_properties` and `cv_r2_without_gp` so the gain stays visible.
 
 **The benchmark is per-property** — the best family is kept for each property
 (there is no reason one inductive bias should win everywhere, and it doesn't).
@@ -417,6 +427,7 @@ values), archetype (cheese type) and predict (API only).
 | 2026-10-02 | v1.8 | gumminess -> hardness (S7) | Spearman 0.870 |
 | 2026-10-02 | v1.9 | Archetype score = separation x sensory weight; 3 x 5 CV (S10) | closeness 0.126 -> 0.103, identity tied |
 | 2026-10-07 | v1.10 | Physically impossible values rejected (S2) | pH R^2 -16.4 -> 0.848 |
+| 2026-10-09 | v1.11 | Selected model + GP 50/50 average where it scores higher (S6) | 11/13 properties; oiling +0.028, melting +0.032 |
 
 ## Glossary (one-liners)
 
