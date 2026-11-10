@@ -126,6 +126,21 @@ duplicate-recipe leakage.
 - Deployed service: every weekly retrain refreshes each CV R^2 over **3
   seeded, shuffled GroupKFold partitions x 5 folds**, so partition luck does
   not move a property across the R^2 0.5 gate from one week to the next.
+- **Since v1.12 the served reliability is a recipe-family hold-out.** The
+  fingerprint split only removes *exact* copies: 44% of measured trials have
+  a different recipe within 2% mass, so near-copies still leak and the score
+  describes "a recipe like one we made" rather than a new one. v1.12 groups
+  trials into 20 recipe families (KMeans on the full ingredient vector) and
+  holds out whole families (3 repeats, pooled out-of-fold R^2). Held-out
+  families sit 0.27 (L1) from their training data, close to how far designs
+  sit (0.10-0.20). On the served models: fingerprint CV 0.664, family hold-out
+  0.486, temporal hold-out (train oldest 80%, test newest 20%) 0.329 mean R^2.
+  The gate stays at 0.5 but now applies to the stricter number, with
+  hysteresis: a selectable property stays unless it falls below gate minus
+  its repeat spread (about 0.03), and enters only above gate plus spread.
+  Oiling and melting are always offered (team decision). Each property also
+  reports a typical error on new recipes (80th percentile of |out-of-fold
+  error|, in its own units).
 - **Winner's curse discipline** for every model/feature decision since v1.7:
   candidates are chosen on one set of seeded partitions and the reported
   "after" number comes from fresh partitions never used for choosing.
@@ -285,8 +300,32 @@ with targets (pH, liquid) are strong-but-tradeable. Upper-only category caps:
 two-sided bands conflicted with the top-K cap (neighbours always carry trace
 flavour/colour, which a lean candidate cannot all include).
 
+Added in v1.12 after a review found the designs still unrealistic in ways
+the table above does not catch (every value comes from data, set in
+`design_config.json`):
+
+| Constraint | Failure it fixes | Form |
+|---|---|---|
+| **Minimum dose** (ingredient's 5th percentile of non-zero use) | 4-5 of ~11 ingredients per design dosed below that ingredient's p5, 2-3 below anything ever weighed | Shares below it set to 0, rest renormalised |
+| **Category floors** (neighbours' 10th percentile, functional categories only) | Salt dropping to 0.04% | Penalty 200x below floor |
+| **Colour/flavour reserve** (neighbours' 90th percentile share, ~0.6-1.0%) | The optimiser picking colours and flavours, which the team chooses; they showed no measurable effect on texture (R^2 0.664 -> 0.670 without them) | Left out of the model and the optimiser; share reserved in the recipe |
+| **Whole-number process counts** | 10.72 process steps | Rounded inside bounds |
+| **One pH model** | Reported pH 0.10-0.39 off the served pH model | Served pH model used for band and output |
+| **Two-model agreement** (robust objective) | Designs drifting to where one model is wrong: on held-out families, error is ~0.41 IQR when the selected model and the Gaussian process agree, up to 1.7 IQR when they disagree | Each target scores the worse of the two models' errors |
+
+The two-model rule is conservative: when the models disagree the selected
+model is usually the closer one, so some reachable targets now look
+unreachable (Mozzarella stretch on the September data: 24 reported, while a
+single model claimed 37.6 and the GP predicted 17.6). It is one switch
+(`robust_objective`). Not yet validated in the lab.
+
 Every candidate is reported with its liquid/powder/solid/paste split,
-estimated pH, and acid share, so a human can sanity-check at a glance.
+estimated pH, and acid share, so a human can sanity-check at a glance. Since
+v1.12 it also shows, per target, the typical error on new recipes and both
+models' predictions, plus the distance to the nearest real recipe, its trial
+number, and what real trials within 2% of the design actually measured. A
+design that close is effectively a remake: look up those measurements instead
+of making it.
 
 ## 10. Cheese archetypes ("latent space" targeting)
 
@@ -385,8 +424,9 @@ interpretable property space, which optimises and explains better.
    time above 90 C (5 vs 15 min) x peak mixer speed (~1,100 vs ~5,000 RPM) x
    oil timing (all before the cook vs half after), 8 runs in duplicate.
 5. **Single final fit.** Final models are refit on all data; the honest
-   accuracy estimate is the GroupKFold CV number. A stricter audit would be a
-   temporal holdout (train on older trials, test on the newest).
+   accuracy estimate for a new recipe is the recipe-family number (S5), and a
+   temporal hold-out is lower still (0.329 mean R^2), so expect real errors
+   around the reported typical error, sometimes above it.
 6. **Live data quality.** The service retrains weekly on whatever the
    dashboard contains. Physically impossible values are rejected (S2), but a
    plausible-looking error (unit slip, shifted decimal) would be learned.
@@ -397,6 +437,13 @@ interpretable property space, which optimises and explains better.
    append to the dataset -> retrain. Each verified candidate is the most
    informative possible new training point near the targets (this is
    active learning / sequential model-based optimisation in spirit).
+8. **Batch-to-batch variation sets a floor.** The same recipe made again
+   gives a stretch SD of 5.1 (47 recipes, 159 trials; median max-min 6.7,
+   largest 36). Near-identical recipes around the Mozzarella design spread
+   only a little more (SD 8-10), and no ingredient or process factor
+   separated high from low stretch after correction for multiple tests (the
+   only lead: mean process temperature, rho 0.54, p 0.02 uncorrected, 0.26
+   corrected, n = 18). Single high measurements are likely not repeatable.
 
 ## 12. Reproducibility
 
@@ -428,6 +475,7 @@ values), archetype (cheese type) and predict (API only).
 | 2026-10-02 | v1.9 | Archetype score = separation x sensory weight; 3 x 5 CV (S10) | closeness 0.126 -> 0.103, identity tied |
 | 2026-10-07 | v1.10 | Physically impossible values rejected (S2) | pH R^2 -16.4 -> 0.848 |
 | 2026-10-09 | v1.11 | Selected model + GP 50/50 average where it scores higher (S6) | 11/13 properties; oiling +0.028, melting +0.032 |
+| 2026-11-10 | v1.12 | Recipe-family reliability with hysteresis (S5); minimum dose, category floors, colour/flavour reserve, whole steps, one pH model, two-model agreement, similar-real evidence (S9) | live retrain 477 s / 900; same 7 selectable; family R^2 pH 0.723, hardness 0.706, avg viscosity 0.540, melted adhesiveness 0.499, max extensibility 0.487, melting 0.444, oiling 0.406; under-dosed ingredients 4-5 -> 0 per design |
 
 ## Glossary (one-liners)
 
